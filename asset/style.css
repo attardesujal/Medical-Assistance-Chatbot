@@ -1,0 +1,45 @@
+/* General Page Styling */
+body {
+    font-family: 'Arial', sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+}
+
+/* Dark Mode */
+.dark-mode {
+    background-color: #1E1E1E !important;
+    color: white !important;
+}
+
+/* Chat Container */
+.stChatMessage {
+    padding: 10px;
+    margin: 5px 0;
+    border-radius: 8px;
+}
+
+.stChatMessage.user {
+    background-color: #DCF8C6;
+    align-self: flex-end;
+}
+
+.stChatMessage.assistant {
+    background-color: #E8E8E8;
+    align-self: flex-start;
+}
+
+/* Centered Bot Name & Intro */
+h1, h2, h3 {
+    text-align: center;
+    color: #007BFF;
+}
+
+/* Bottom Centered Search Box */
+.stChatInput {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60%;
+    max-width: 600px;
+}
