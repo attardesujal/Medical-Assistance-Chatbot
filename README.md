@@ -52,15 +52,3 @@ This will start the chatbot interface in your browser.
 │── app.py  # Streamlit web app
 │── requirements.txt  # Dependencies
 │── README.md  # Project documentation
-```
-
----
-
-## **📜 License**  
-This project is open-source and available under the **MIT License**.  
-
-🚀 **Contributions are welcome!** Feel free to fork, improve, and submit a PR.  
-
----
-
-Let me know if you need changes! 🚀
