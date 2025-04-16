@@ -1,0 +1,9 @@
+streamlit
+langchain
+faiss-cpu
+sentence-transformers
+llama-cpp-python
+deep-translator
+langchain-core
+langchain-community
+langchain-huggingface
