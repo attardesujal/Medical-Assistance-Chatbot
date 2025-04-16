@@ -15,22 +15,28 @@ Aarogya is an intelligent medical assistant chatbot that runs completely offline
 ✅ Custom prompt tuning for precise medical Q&A
 
  Project Structure
- 📁 local_model
-│
-├── llama.cpp/                          # llama.cpp repo (used for local LLM)
-│
+Aarogya2/
+├── llama.cpp
 ├── models/
 │   └── mistral/
-│       └── mistral-7b-instruct-v0.1.Q4_K_M.gguf  # Local quantized LLM
-│
+│       └── mistral-7b-instruct-v0.1.Q4_K_M.gguf
 ├── vectorstore/
 │   └── db_faiss/
-│       ├── index.faiss                # FAISS index (large, don't upload to GitHub)
-│       └── index.pkl                  # FAISS metadata
-│
-├── 0.png                              # Sidebar logo
-├── 
+│       ├── index.faiss
+│       └── index.pkl
+│                   
 └── app.py
 
+🧠 Model Download (Mistral 7B)
+To run the chatbot locally, download the quantized GGUF model:
 
+📥 [Mistral-7B-Instruct-v0.1.Q4_K_M.gguf - Hugging Face ](https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.1-GGUF)
 
+🔸 Recommended: Q4_K_M version (~4GB)
+🔸 Place it in: models/mistral/mistral-7b-instruct-v0.1.Q4_K_M.gguf
+
+llama-cpp-python handles the backend by default, but to build llama.cpp manually (for GPU tuning):
+📥ggerganov/llama.cpp on GitHub
+
+▶️ Run the App
+streamlit run app.py
