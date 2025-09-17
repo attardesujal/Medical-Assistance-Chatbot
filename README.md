@@ -1,14 +1,11 @@
-Of course\! Here is a restructured and enhanced version of your README file, formatted for GitHub. This version is more organized, scannable, and provides clearer instructions for new users.
 
------
-
-# Aarogya – Local Medical Chatbot 🩺
+# Aarogya – Local Medical Chatbot 
 
 Aarogya is an intelligent, offline-first medical assistant chatbot. It leverages the power of the Mistral 7B model locally, ensuring your data remains private. With FAISS-based document search and multi-language support, it provides fast, context-aware medical information right on your machine.
 
 -----
 
-## ✨ Key Features
+##  Key Features
 
    **Runs Entirely Offline:** No internet connection or API keys needed. Your conversations are completely private.
    **Intelligent & Context-Aware:** Utilizes a local Mistral 7B (`.gguf`) model via `llama.cpp` for high-quality responses.
@@ -19,8 +16,7 @@ Aarogya is an intelligent, offline-first medical assistant chatbot. It leverages
    **GPU Accelerated:** Optimized for high performance on local machines with GPU support.
 
 -----
-
-## 🛠️ Technology Stack
+##  Technology Stack
 
   * **Large Language Model:** Mistral 7B (GGUF)
   * **Model Backend:** `llama.cpp` / `llama-cpp-python`
@@ -30,7 +26,7 @@ Aarogya is an intelligent, offline-first medical assistant chatbot. It leverages
 
 -----
 
-## 📂 Project Structure
+##  Project Structure
 
 ```
 Aarogya/
@@ -47,8 +43,7 @@ Aarogya/
 ```
 
 -----
-
-## 🚀 Getting Started
+##  Getting Started
 
 Follow these steps to set up and run the project on your local machine.
 
@@ -98,7 +93,7 @@ For advanced tuning or specific hardware (e.g., Apple Metal), you can build `lla
 
 -----
 
-## ▶️ Run the Application
+##  Run the Application
 
 Once the setup is complete, launch the Streamlit app with the following command:
 
