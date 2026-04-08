@@ -1,9 +1,7 @@
-streamlit
-langchain
-faiss-cpu
+python-dotenv
+pypdf
 sentence-transformers
-llama-cpp-python
-deep-translator
-langchain-core
-langchain-community
-langchain-huggingface
+pinecone-client==5.0.1
+openai>=1.51.0
+fastapi
+uvicorn[standard]
