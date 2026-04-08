@@ -1,140 +1,203 @@
-import streamlit as st
-from langchain.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import LlamaCpp
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from deep_translator import GoogleTranslator
-import re
+import os, argparse, glob, sys
+from uuid import uuid4
+from dotenv import load_dotenv
+from pypdf import PdfReader
+from sentence_transformers import SentenceTransformer
+from pinecone import Pinecone
+import requests
 
-# ---------------------- Paths ---------------------- #
-GGUF_MODEL_PATH = "models/mistral/mistral-7b-instruct-v0.1.Q4_K_M.gguf"
-FAISS_DB_PATH = "vectorstore/db_faiss"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# ------------ Env & Config ------------
+load_dotenv()
 
-# ---------------------- Prompt Template ---------------------- #
-CUSTOM_PROMPT_TEMPLATE = """
-You are Medico, an intelligent and friendly AI medical assistant.
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
+PINECONE_INDEX   = os.getenv("PINECONE_INDEX", "rag-docs")
+PINECONE_HOST    = os.getenv("PINECONE_HOST")
 
-Your task is to answer questions in a clean, structured, markdown-friendly format like ChatGPT.
+EMBED_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "BAAI/bge-base-en-v1.5")
+CHUNK_SIZE       = int(os.getenv("CHUNK_SIZE", "1000"))
+CHUNK_OVERLAP    = int(os.getenv("CHUNK_OVERLAP", "200"))
 
-Follow these rules:
-- Remove the None at the start of response only.
-- Answer only what is asked (e.g., if asked about treatment, do not explain symptoms).
-- Use numbered steps or bullet points for clarity.
-- Make the tone helpful and human-like.
-- Use headings (###) for different sections if needed.
-- Use relevant emojis (🩺💊✔️⚠️) where helpful.
-- Avoid introductions and closings like "Hi" or "Let me help you."
+if not PINECONE_API_KEY or not PINECONE_HOST:
+    print("ERROR: Pinecone config missing"); sys.exit(1)
 
-Context: {context}
-Question: {question}
+# ------------ Clients ------------
+pc = Pinecone(api_key=PINECONE_API_KEY)
+index = pc.Index(host=PINECONE_HOST)
 
-Start your response directly in markdown format. Be friendly, clear, and practical.
+embedder = SentenceTransformer(EMBED_MODEL_NAME)
+
+def embed_texts(texts):
+    return embedder.encode(texts, normalize_embeddings=True).tolist()
+
+# ------------ OLLAMA LLM ------------
+def call_ollama(prompt):
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "tinyllama",
+                "prompt": prompt,
+                "stream": False
+            }
+        )
+        return response.json()["response"]
+    except Exception as e:
+        return f"Ollama Error: {str(e)}"
+
+# ------------ Core Logic ------------
+def read_pdfs(folder):
+    docs = []
+    for path in glob.glob(os.path.join(folder, "*.pdf")):
+        reader = PdfReader(path)
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text() or ""
+            docs.append({
+                "source": os.path.basename(path),
+                "page": i+1,
+                "text": text
+            })
+    return docs
+
+def chunk_text(text):
+    chunks, start = [], 0
+    while start < len(text):
+        end = min(start + CHUNK_SIZE, len(text))
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end == len(text):
+            break
+        start = max(end - CHUNK_OVERLAP, end)
+    return chunks
+
+def ingest(data_dir):
+    docs = read_pdfs(data_dir)
+
+    if not docs:
+        print("No PDFs found."); return
+
+    all_chunks = []
+    for d in docs:
+        for ch in chunk_text(d["text"]):
+            all_chunks.append({
+                "text": ch,
+                "source": d["source"],
+                "page": d["page"]
+            })
+
+    print(f"Chunks to upsert: {len(all_chunks)}")
+
+    vectors = embed_texts([x["text"] for x in all_chunks])
+
+    items = [{
+        "id": str(uuid4()),
+        "values": v,
+        "metadata": x
+    } for x, v in zip(all_chunks, vectors)]
+
+    for i in range(0, len(items), 100):
+        index.upsert(vectors=items[i:i+100])
+
+    print(f"Upserted {len(items)} vectors to '{PINECONE_INDEX}'")
+    print("✅ Ingestion complete")
+
+# ------------ Query ------------
+
+SYSTEM = ("You are a helpful AI assistant. Answer ONLY using the given context. "
+          "If not found, say you don't know.")
+
+def build_context(question, k=5):
+    qvec = embed_texts([question])[0]
+    res = index.query(vector=qvec, top_k=k, include_metadata=True)
+
+    context_blocks = []
+    sources = set()
+
+    for m in res.matches:
+        meta = m.metadata
+        context_blocks.append(meta["text"])
+        sources.add(f"{meta['source']} (page {meta['page']})")
+
+    context = "\n\n".join(context_blocks)
+    sources_text = "\n".join(sources)
+
+    return context, sources_text
+
+def ask(question, k=5, debug=False):
+    context, sources = build_context(question, k)
+
+    if debug:
+        print("\n[DEBUG] --- Retrieved Context ---\n")
+        print(context[:1500])
+
+    if not context.strip():
+        return "No relevant context found."
+
+    prompt = f"""
+{SYSTEM}
+
+Answer in 3-4 lines maximum.
+Be clear and concise.
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
 """
 
-# ---------------------- Load LLM ---------------------- #
-@st.cache_resource
-def load_llm():
-    return LlamaCpp(
-        model_path=GGUF_MODEL_PATH,
-        temperature=0.4,
-        max_tokens=1024,
-        top_p=0.9,
-        n_ctx=2048,
-        n_batch=16,
-        n_gpu_layers=-1,
-        f16_kv=True,
-        use_mlock=False,
-        verbose=False
-    )
+    answer = call_ollama(prompt)
 
-# ---------------------- QA Chain ---------------------- #
-@st.cache_resource
-def setup_qa_chain():
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    db = FAISS.load_local(FAISS_DB_PATH, embeddings, allow_dangerous_deserialization=True)
-    prompt = PromptTemplate(input_variables=["context", "question"], template=CUSTOM_PROMPT_TEMPLATE)
-    llm = load_llm()
-    return RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=db.as_retriever(search_kwargs={"k": 3}),
-        chain_type="stuff",
-        return_source_documents=False,
-        chain_type_kwargs={"prompt": prompt},
-    )
+    final_output = f"""
+========================================
+FINAL ANSWER
+========================================
 
-# ---------------------- Translation ---------------------- #
-def translate_and_format(text, target_lang):
-    def clean_and_translate(line):
-        if not line.strip():
-            return ""
-        match = re.match(r"^([➊-➒•✔️🔍❗🚫📌📝#]*)\s*(.*)", line)
-        if match:
-            prefix, content = match.groups()
-        else:
-            prefix, content = "", line
-        try:
-            translated = GoogleTranslator(source="auto", target=target_lang).translate(content.strip())
-            return f"{prefix} {translated}".strip()
-        except Exception as e:
-            return f"{prefix} ⚠️ Translation error: {e}"
-    lines = text.split("\n")
-    translated_lines = [clean_and_translate(line) for line in lines]
-    return "\n".join(translated_lines)
+{answer.strip()}
 
-# ---------------------- Streamlit UI ---------------------- #
-st.set_page_config(page_title="🩺 Medico Chatbot", layout="wide")
+Sources:
+{sources}
 
-# Sidebar with language selection
-with st.sidebar:
-    st.image("0.png", width=200)
-    st.title("🩺 Medico")
-    st.markdown("Your AI Medical Assistant")
-    language_map = {
-        "English": "en",
-        "Hindi": "hi",
-        "Marathi": "mr",
-        "Gujarati": "gu",
-        "Tamil": "ta",
-        "Telugu": "te",
-        "Kannada": "kn",
-        "Bengali": "bn",
-        "Urdu": "ur",
-    }
-    selected_language = st.selectbox("🌐 Choose response language:", list(language_map.keys()), index=0)
-    lang_code = language_map[selected_language]
+========================================
+"""
 
-# Main UI layout
-st.markdown("<h1 style='text-align: center;'>💬 Medico - Your AI Medical Assistant</h1>", unsafe_allow_html=True)
+    return final_output
 
-qa_chain = setup_qa_chain()
+# ------------ API ------------
+def run_api(port):
+    from fastapi import FastAPI
+    from pydantic import BaseModel
+    import uvicorn
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+    app = FastAPI()
 
-# Chat input form
-with st.form(key="chat_form", clear_on_submit=True):
-    user_query = st.text_input("📝 Write your query here:")
-    submitted = st.form_submit_button("Ask")
+    class Query(BaseModel):
+        question: str
+        k: int = 5
 
-if submitted and user_query:
-    with st.spinner("Thinking... 💭"):
-        raw_response = qa_chain.run(user_query)
-        if raw_response:
-            translated = translate_and_format(raw_response, lang_code)
-            st.session_state.chat_history.append(("🧑 You", user_query))
-            st.session_state.chat_history.append(("🩺 Aarogya", translated))
-        else:
-            st.session_state.chat_history.append(("🩺 Aarogya", "⚠️ Sorry, I couldn't generate a response. Please try again."))
+    @app.post("/ask")
+    def get_answer(q: Query):
+        return {"answer": ask(q.question, q.k)}
 
-# Display chat history in styled bubbles
-for speaker, msg in st.session_state.chat_history:
-    if speaker == "🧑 You":
-        st.markdown(f"<div style='background-color:#1e1e1e; color:white; padding:10px; border-radius:10px; margin:10px 0;'><strong>{speaker}:</strong><br>{msg}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div style='background-color:#2a2a2a; color:#c5f2ff; padding:10px; border-radius:10px; margin:10px 0;'><strong>{speaker}:</strong><br>{msg}</div>", unsafe_allow_html=True)
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
-# Clear chat option
-if st.button("🗑️ Clear Chat"):
-    st.session_state.chat_history = []
+# ------------ CLI ------------
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("mode", choices=["ingest", "ask", "api"])
+    parser.add_argument("--data", default=".")
+    parser.add_argument("--q", default="")
+    parser.add_argument("--port", type=int, default=8000)
+
+    args = parser.parse_args()
+
+    if args.mode == "ingest":
+        ingest(args.data)
+
+    elif args.mode == "ask":
+        print(ask(args.q))
+
+    elif args.mode == "api":
+        run_api(args.port)
